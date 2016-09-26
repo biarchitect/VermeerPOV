@@ -1,4 +1,4 @@
-
+library(data.table)
 
 clm<-read.csv("../Data/warranty_claims",as.is=TRUE)
 #dim(clm)
@@ -30,7 +30,7 @@ clm_names<- c("CLM_ID","PROVIDER_ID","CLM_CD","SUBMIT_LOC_ID","DATA_LANG_CD","SU
               ,"SRVC_PART_INCAMT","SRVC_PART_INCPCT","SRVC_LBR_INCAMT","SRVC_LBR_INCPCT","SRVC_OTH_INCAMT","SRVC_OTH_INCPCT","RSN_FOR_DELAY","EXT_ID","CLM_SRVC_CD"
               ,"SRVC_STATUS_CD","DENIAL_REASON","POLICY_VERSION","SRVC_SUBTTLREQAMT","SRVC_SUBTTLADJAMT","SRVC_REQTAXRATE","SRVC_ADJTAXRATE","SRVC_REQTAXAMT"
               ,"SRVC_ADJTAXAMT","SRVC_GSTHST_REQAMT","SRVC_GSTHST_ADJAMT","SRVC_PSTQST_REQAMT","SRVC_PSTQST_ADJAMT","SRVC_TTLREQAMT","SRVC_TTLADJAMT","AGC_CODE"
-              ,"SUBSYSTEM","SOURCE","fred")
+              ,"SUBSYSTEM","SOURCE")
 colnames(clm)<-clm_names
 # clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","CLM_PART_TTLAMT") ])
 clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
@@ -39,6 +39,32 @@ clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT
 clm2<-clm1[(nchar(clm1$PRD_SRL)!= 0),];clm2<-clm2[clm2$SRVC_FAIL_DT != "\\N",]
 clm2[clm2$SUBSYSTEM == "\\N",]$SUBSYSTEM=NA;clm2[clm2$SUBSYSTEM %like% "electrical",]$SUBSYSTEM="Electrical"
 #table(clm2$SUBSYSTEM,useNA = "ifany")
+
+
+#clm2$CLM_CREATE_DT<-as.POSIXct(as.Date(clm2$CLM_CREATE_DT))
+##2014w25
+#paste(substr(strptime(clm2$CLM_CREATE_DT),"%Y"),1,4),"w",strftime(clm2$CLM_CREATE_DT,"%U"),sep="")
+clm2<-cbind(fail_week=year_week_date(clm2$SRVC_FAIL_DT),clm2)
+
+clm3<-clm2[,c(1,2,6,7)]
+clm3[is.na(clm3$SUBSYSTEM),]$SUBSYSTEM <-"Unknown"
+
+clm3<-aggregate(as.numeric(clm3$CLM_PART_TTLAMT),by=list(clm3$fail_week,clm3$PRD_SRL,clm3$SUBSYSTEM),FUN=sum,na.rm=TRUE)
+colnames(clm3)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
+#clm3[is.na(clm3$SUBSYSTEM),]$SUBSYSTEM <-"Unknown";clm3[nchar(clm3$SUBSYSTEM)==1,]$SUBSYSTEM<-"Unknown"
+clm3[(is.na(clm3$SUBSYSTEM) || nchar(clm3$SUBSYSTEM)==1),]$SUBSYSTEM <-"Unknown"
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
