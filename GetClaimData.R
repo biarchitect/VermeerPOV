@@ -1,7 +1,7 @@
-library(data.table)
+library(data.table) #Needed for %like%
 
 clm<-read.csv("../Data/warranty_claims",as.is=TRUE)
-#dim(clm)
+# Pulled from the Data Factory job.
 clm_names<- c("CLM_ID","PROVIDER_ID","CLM_CD","SUBMIT_LOC_ID","DATA_LANG_CD","SUBMIT_LOC_CLM_REF","RCV_LOC_ID","CLM_SUBMIT_MODE_CD","CLM_CLS_CD","CLM_TYP_CD"
               ,"CLM_CREATE_DT","CLM_STATUS_CD","CLM_STATUS_DT","BATCH_ACTION_CD","CLM_SETTLE_DT","PYMT_TYPE_CD","PYMT_DT","PYMT_ACCT_REF","CLM_RQST_TYPE_CD"
               ,"CLM_CONDTN_CD","IS_PROCESS_AUTO","PREAUTH_REF","IS_TEMPLATE","CLM_TEMPLATE_ID","TEMPLATE_NM","CLM_DESC1","CLM_DESC2","CRNCY_CD","CLM_PRT_TLORGNLAMT"
@@ -36,8 +36,34 @@ colnames(clm)<-clm_names
 clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
 
 #head(clm1)
-clm2<-clm1[(nchar(clm1$PRD_SRL)!= 0),];clm2<-clm2[clm2$SRVC_FAIL_DT != "\\N",]
-clm2[clm2$SUBSYSTEM == "\\N",]$SUBSYSTEM=NA;clm2[clm2$SUBSYSTEM %like% "electrical",]$SUBSYSTEM="Electrical"
+#clean up the data
+clm1<-clm1[(nchar(clm1$PRD_SRL)!= 0),]
+clm1<-clm1[clm1$PRD_SRL != "6191",]
+
+clm1<-clm1[clm1$SRVC_FAIL_DT != "\\N",]
+#clm1$SUBSYSTEM<-as.factor(clm1$SUBSYSTEM)
+
+clm1$SUBSYSTEM[clm1$SUBSYSTEM == "\\N"]<-"Unknown"
+clm1$SUBSYSTEM[ nchar(clm1$SUBSYSTEM)==1] <-"Unknown"
+
+#Consolidate typos and get rid of nonesense fail dates of hours and in the future
+clm1$SUBSYSTEM[clm1$SUBSYSTEM %like% "electrical"]<-"Electrical"
+clm1<-clm1[clm1$SRVC_FAIL_DT != "Hours",]
+clm1<-clm1[clm1$SRVC_FAIL_DT < "2017-01-01 00:00:00.0000000",]
+           
+#Make the year week column
+clm1<-cbind(fail_week=year_week_date(clm1$SRVC_FAIL_DT),clm1)
+
+#Aggregate the columns
+
+clm1<-aggregate(as.numeric(clm1$CLM_PART_TTLAMT),by=list(clm1$fail_week,clm1$PRD_SRL,clm1$SUBSYSTEM),FUN=sum,na.rm=TRUE)
+
+#give the new columns names
+colnames(clm1)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
+
+#clm1<-clm1[(nchar(clm1$PRD_SRL)!= 0) || clm1$SRVC_FAIL_DT != "\\N",]
+#clm1[(is.na(clm1$SUBSYSTEM) || nchar(clm1$SUBSYSTEM)==1),]$SUBSYSTEM <-"Unknown"
+#clm2[clm2$SUBSYSTEM == "\\N",]$SUBSYSTEM=NA;clm2[clm2$SUBSYSTEM %like% "electrical",]$SUBSYSTEM="Electrical"
 #table(clm2$SUBSYSTEM,useNA = "ifany")
 
 
@@ -49,8 +75,8 @@ clm2<-cbind(fail_week=year_week_date(clm2$SRVC_FAIL_DT),clm2)
 clm3<-clm2[,c(1,2,6,7)]
 clm3[is.na(clm3$SUBSYSTEM),]$SUBSYSTEM <-"Unknown"
 
-clm3<-aggregate(as.numeric(clm3$CLM_PART_TTLAMT),by=list(clm3$fail_week,clm3$PRD_SRL,clm3$SUBSYSTEM),FUN=sum,na.rm=TRUE)
-colnames(clm3)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
+clm1<-aggregate(as.numeric(clm1$CLM_PART_TTLAMT),by=list(clm1$fail_week,clm1$PRD_SRL,clm1$SUBSYSTEM),FUN=sum,na.rm=TRUE)
+colnames(clm1)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
 #clm3[is.na(clm3$SUBSYSTEM),]$SUBSYSTEM <-"Unknown";clm3[nchar(clm3$SUBSYSTEM)==1,]$SUBSYSTEM<-"Unknown"
 clm3[(is.na(clm3$SUBSYSTEM) || nchar(clm3$SUBSYSTEM)==1),]$SUBSYSTEM <-"Unknown"
 
