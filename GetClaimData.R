@@ -32,35 +32,76 @@ clm_names<- c("CLM_ID","PROVIDER_ID","CLM_CD","SUBMIT_LOC_ID","DATA_LANG_CD","SU
               ,"SRVC_ADJTAXAMT","SRVC_GSTHST_REQAMT","SRVC_GSTHST_ADJAMT","SRVC_PSTQST_REQAMT","SRVC_PSTQST_ADJAMT","SRVC_TTLREQAMT","SRVC_TTLADJAMT","AGC_CODE"
               ,"SUBSYSTEM","SOURCE")
 colnames(clm)<-clm_names
+write.csv(clm,file="../Data/warranty.csv")
+
 # clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","CLM_PART_TTLAMT") ])
-clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
+#clm_raw
+#
+clm_raw<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
+#Number of rows = 14,387
 
 #head(clm1)
 #clean up the data
-clm1<-clm1[(nchar(clm1$PRD_SRL)!= 0),]
-clm1<-clm1[clm1$PRD_SRL != "6191",]
+#clm_clean
+clm_clean<-clm_raw[(nchar(clm_raw$PRD_SRL)!= 0),]
+#Number of Rows = 13,678
+clm_clean<-clm_clean[clm_clean$PRD_SRL != "6191",]
+#Number of Rows = 4
 
-clm1<-clm1[clm1$SRVC_FAIL_DT != "\\N",]
+clm_clean<-clm_clean[clm_clean$SRVC_FAIL_DT != "\\N",]
 #clm1$SUBSYSTEM<-as.factor(clm1$SUBSYSTEM)
+#Number of Rows = 636
 
-clm1$SUBSYSTEM[clm1$SUBSYSTEM == "\\N"]<-"Unknown"
-clm1$SUBSYSTEM[ nchar(clm1$SUBSYSTEM)==1] <-"Unknown"
+clm_clean$SUBSYSTEM[clm_clean$SUBSYSTEM == "\\N"]<-"Unknown"
+clm_clean$SUBSYSTEM[ nchar(clm_clean$SUBSYSTEM)==1] <-"Unknown"
+#Number of Rows 5216
 
-#Consolidate typos and get rid of nonesense fail dates of hours and in the future
-clm1$SUBSYSTEM[clm1$SUBSYSTEM %like% "electrical"]<-"Electrical"
-clm1<-clm1[clm1$SRVC_FAIL_DT != "Hours",]
-clm1<-clm1[clm1$SRVC_FAIL_DT < "2017-01-01 00:00:00.0000000",]
-           
+#Consolidate typos and get rid of nonsense fail dates of hours and in the future
+clm_clean$SUBSYSTEM[clm_clean$SUBSYSTEM %like% "electrical"]<-"Electrical"
+clm_clean<-clm_clean[clm_clean$SRVC_FAIL_DT != "Hours",]
+clm_clean<-clm_clean[clm_clean$SRVC_FAIL_DT < "2017-01-01 00:00:00.0000000",]
+#The other dates are around 2013 so change this one bad date.
+clm_clean[clm_clean$SRVC_FAIL_DT == "0013-03-03 00:00:00.0000000","SRVC_FAIL_DT"] = "2013-03-03 00:00:00.0000000"
+
+
+
+############################Summarize Clean Data###################3           
 #Make the year week column
-clm1<-cbind(fail_week=year_week_date(clm1$SRVC_FAIL_DT),clm1)
+#clm_ml
+######REQUIRES The function Call
+
+clm_agg<-cbind(fail_week=year_week_date(clm_clean$SRVC_FAIL_DT),clm_clean)
 
 #Aggregate the columns
+clm_agg<-aggregate(as.numeric(clm_agg$CLM_PART_TTLAMT),by=list(clm_agg$fail_week,clm_agg$PRD_SRL,clm_agg$SUBSYSTEM),FUN=sum,na.rm=TRUE)
 
-clm1<-aggregate(as.numeric(clm1$CLM_PART_TTLAMT),by=list(clm1$fail_week,clm1$PRD_SRL,clm1$SUBSYSTEM),FUN=sum,na.rm=TRUE)
+#give the newly aggregated columns names
+colnames(clm_agg)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
 
-#give the new columns names
-colnames(clm1)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
+#Only use Warranty date ranges that are inside Fault date ranges
+range(as.character(clm_agg$fail_week))
+#[1] "2003w30" "2016w30"
+range(as.character(faultdt$year_week_date))
+#[1] "2014w25" "2016w9" 
+#clm_out<-clm_out[as.character(clm_out$fail_week) >= "2014w25" & as.character(clm_out$fail_week) <= "2016w9",]
+clm_out<-clm_agg[as.character(clm_agg$fail_week) >= range(as.character(faultdt$year_week_date))[1] & 
+            as.character(clm_agg$fail_week) <= range(as.character(faultdt$year_week_date))[2],]
 
+
+# Only join where warranty machine match fault machines
+
+
+
+
+
+###########Get Fault
+###########JOIN to Fault
+wrrnty<-data.table(clm_out,key=c("PRD_SRL","fail_week"))
+joined<-faultdt[wrrnty]
+
+
+
+############WORKING###################
 #clm1<-clm1[(nchar(clm1$PRD_SRL)!= 0) || clm1$SRVC_FAIL_DT != "\\N",]
 #clm1[(is.na(clm1$SUBSYSTEM) || nchar(clm1$SUBSYSTEM)==1),]$SUBSYSTEM <-"Unknown"
 #clm2[clm2$SUBSYSTEM == "\\N",]$SUBSYSTEM=NA;clm2[clm2$SUBSYSTEM %like% "electrical",]$SUBSYSTEM="Electrical"
@@ -79,6 +120,14 @@ clm1<-aggregate(as.numeric(clm1$CLM_PART_TTLAMT),by=list(clm1$fail_week,clm1$PRD
 colnames(clm1)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
 #clm3[is.na(clm3$SUBSYSTEM),]$SUBSYSTEM <-"Unknown";clm3[nchar(clm3$SUBSYSTEM)==1,]$SUBSYSTEM<-"Unknown"
 clm3[(is.na(clm3$SUBSYSTEM) || nchar(clm3$SUBSYSTEM)==1),]$SUBSYSTEM <-"Unknown"
+mx<-merge(fault,clm1,x.by=c("VMC_VIN","year_week_date"),y.by=c("PRD_SRL","fail_week"))
+
+faultdt<-data.table(fault,key=c("VMC_VIN","year_week_date"))
+wrrnty<-data.table(clm1,key=c("PRD_SRL","fail_week"))
+joined<-faultdt[wrrnty]
+joined[!is.na(joined$ELECTRICAL),]
+
+
 
 
 
