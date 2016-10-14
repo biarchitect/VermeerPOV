@@ -1,6 +1,6 @@
 library(data.table) #Needed for %like%
 
-clm<-read.csv("../Data/warranty_claims",as.is=TRUE)
+clm_raw<-read.csv("../Data/warranty_claims",as.is=TRUE)
 # Pulled from the Data Factory job.
 clm_names<- c("CLM_ID","PROVIDER_ID","CLM_CD","SUBMIT_LOC_ID","DATA_LANG_CD","SUBMIT_LOC_CLM_REF","RCV_LOC_ID","CLM_SUBMIT_MODE_CD","CLM_CLS_CD","CLM_TYP_CD"
               ,"CLM_CREATE_DT","CLM_STATUS_CD","CLM_STATUS_DT","BATCH_ACTION_CD","CLM_SETTLE_DT","PYMT_TYPE_CD","PYMT_DT","PYMT_ACCT_REF","CLM_RQST_TYPE_CD"
@@ -31,19 +31,19 @@ clm_names<- c("CLM_ID","PROVIDER_ID","CLM_CD","SUBMIT_LOC_ID","DATA_LANG_CD","SU
               ,"SRVC_STATUS_CD","DENIAL_REASON","POLICY_VERSION","SRVC_SUBTTLREQAMT","SRVC_SUBTTLADJAMT","SRVC_REQTAXRATE","SRVC_ADJTAXRATE","SRVC_REQTAXAMT"
               ,"SRVC_ADJTAXAMT","SRVC_GSTHST_REQAMT","SRVC_GSTHST_ADJAMT","SRVC_PSTQST_REQAMT","SRVC_PSTQST_ADJAMT","SRVC_TTLREQAMT","SRVC_TTLADJAMT","AGC_CODE"
               ,"SUBSYSTEM","SOURCE")
-colnames(clm)<-clm_names
+colnames(clm_raw)<-clm_names
 write.csv(clm,file="../Data/warranty.csv")
 
 # clm1<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","CLM_PART_TTLAMT") ])
 #clm_raw
 #
-clm_raw<-as.data.frame(clm[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
+clm<-as.data.frame(clm_raw[,c("PRD_SRL","CLM_CREATE_DT","SRVC_FAIL_DT","SRVC_RPR_DT","CLM_PART_TTLAMT","SUBSYSTEM") ])
 #Number of rows = 14,387
 
 #head(clm1)
 #clean up the data
 #clm_clean
-clm_clean<-clm_raw[(nchar(clm_raw$PRD_SRL)!= 0),]
+clm_clean<-clm[(nchar(clm$PRD_SRL)!= 0),]
 #Number of Rows = 13,678
 clm_clean<-clm_clean[clm_clean$PRD_SRL != "6191",]
 #Number of Rows = 4
@@ -62,21 +62,49 @@ clm_clean<-clm_clean[clm_clean$SRVC_FAIL_DT != "Hours",]
 clm_clean<-clm_clean[clm_clean$SRVC_FAIL_DT < "2017-01-01 00:00:00.0000000",]
 #The other dates are around 2013 so change this one bad date.
 clm_clean[clm_clean$SRVC_FAIL_DT == "0013-03-03 00:00:00.0000000","SRVC_FAIL_DT"] = "2013-03-03 00:00:00.0000000"
+############################ADD the previous 4 weeks or rows to dataframe###################  
+clm_clean1<-rbind(clm_clean,(cbind(clm_clean[,1:2],SRVC_FAIL_DT=paste(as.character(as.Date(clm_clean$SRVC_FAIL_DT) - 7,"")," 00:00:00.00000"),clm_clean[,4:6])))
+clm_clean1<-rbind(clm_clean1,(cbind(clm_clean[,1:2],SRVC_FAIL_DT=paste(as.character(as.Date(clm_clean$SRVC_FAIL_DT) - 14,"")," 00:00:00.00000"),clm_clean[,4:6])))
+clm_clean1<-rbind(clm_clean1,(cbind(clm_clean[,1:2],SRVC_FAIL_DT=paste(as.character(as.Date(clm_clean$SRVC_FAIL_DT) - 21,"")," 00:00:00.00000"),clm_clean[,4:6])))
+clm_clean1<-rbind(clm_clean1,(cbind(clm_clean[,1:2],SRVC_FAIL_DT=paste(as.character(as.Date(clm_clean$SRVC_FAIL_DT) - 28,"")," 00:00:00.00000"),clm_clean[,4:6])))
+clm_clean<-clm_clean1
+rm(clm_clean1)
 
-
-
-############################Summarize Clean Data###################3           
+############################Summarize Clean Data###################          
 #Make the year week column
 #clm_ml
+
 ######REQUIRES The function Call
 
-clm_agg<-cbind(fail_week=year_week_date(clm_clean$SRVC_FAIL_DT),clm_clean)
+clm_clean<-cbind(fail_week=year_week_date(clm_clean$SRVC_FAIL_DT),clm_clean)
 
 #Aggregate the columns
-clm_agg<-aggregate(as.numeric(clm_agg$CLM_PART_TTLAMT),by=list(clm_agg$fail_week,clm_agg$PRD_SRL,clm_agg$SUBSYSTEM),FUN=sum,na.rm=TRUE)
+clm_agg<-aggregate(as.numeric(clm_clean$CLM_PART_TTLAMT),by=list(clm_clean$fail_week,clm_clean$PRD_SRL,clm_clean$SUBSYSTEM),FUN=sum,na.rm=TRUE)
 
 #give the newly aggregated columns names
 colnames(clm_agg)<-c("fail_week","PRD_SRL","SUBSYSTEM","WARR_AMT")
+
+#Normalize the Warranty Amounts (WARR_AMT-mean(WARR_AMT))/sd(WARR_AMT)
+#range(clm_agg$WARR_AMT)
+#[1]     0.00 70014.25
+clm_agg[,"WARR_AMT"]<-scale(clm_agg$WARR_AMT)
+#clm_agg<-cbind(clm_agg,)
+
+#Pivot the categorical SUBSYSTEM variable to make it numeric columns
+clm_agg<-as.data.frame(cbind(clm_agg,model.matrix(~clm_agg$SUBSYSTEM)))
+
+#Artifacts of the pivot. There is probably an easier way.
+clm_agg<-clm_agg[,-5] # drop the intercept column
+#Don't need the categorical column anymore.
+clm_agg<-clm_agg[,-3] # drop the SUBSYSTEM column
+
+#Rename the pivoted columns
+subnames<-c("fail_week","PRD_SRL","WARR_AMT","Aux Hydraulic","Electrical","Engine","Miscellaneous","Mud","Multiple","Rotation","Structural","Structure","Thrust","Unknown")
+colnames(clm_agg)<-subnames
+
+
+
+
 
 #Only use Warranty date ranges that are inside Fault date ranges
 range(as.character(clm_agg$fail_week))
@@ -84,8 +112,53 @@ range(as.character(clm_agg$fail_week))
 range(as.character(faultdt$year_week_date))
 #[1] "2014w25" "2016w9" 
 #clm_out<-clm_out[as.character(clm_out$fail_week) >= "2014w25" & as.character(clm_out$fail_week) <= "2016w9",]
-clm_out<-clm_agg[as.character(clm_agg$fail_week) >= range(as.character(faultdt$year_week_date))[1] & 
+clm_agg<-clm_agg[as.character(clm_agg$fail_week) >= range(as.character(faultdt$year_week_date))[1] & 
             as.character(clm_agg$fail_week) <= range(as.character(faultdt$year_week_date))[2],]
+
+# > str(clm_agg)
+# 'data.frame':	51431 obs. of  15 variables:
+#   $ fail_week    : Factor w/ 627 levels "2003w26","2003w27",..: 421 422 423 424 425 444 445 446 447 448 ...
+# $ PRD_SRL      : chr  "1VRZ19031C1001367" "1VRZ19031C1001367" "1VRZ19031C1001367" "1VRZ19031C1001367" ...
+# $ WARR_AMT     : num [1:51431, 1] -0.247 -0.247 -0.247 -0.247 -0.247 ...
+# ..- attr(*, "scaled:center")= num 532
+# ..- attr(*, "scaled:scale")= num 1621
+# $ Aux Hydraulic: num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Electrical   : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Engine       : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Miscellaneous: num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Mud          : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Multiple     : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Rotation     : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Structural   : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Structure    : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Thrust       : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ Unknown      : num  0 0 0 0 0 0 0 0 0 0 ...
+# $ NA           : num  0 0 0 0 0 0 0 0 0 0 ...
+# > dim(clm_agg)
+# [1] 51431    15
+
+
+#################################
+#################################
+#            DONE               #
+#################################
+#################################
+
+
+
+
+
+wrrnty<-data.table(clm_agg,key=c("PRD_SRL","fail_week"))
+
+#####Feature Engineering
+wrrnty<-as.data.frame(cbind(wrrnty,model.matrix(~wrrnty$SUBSYSTEM)))
+wrrnty<-wrrnty[,-5] # drop the intercept column
+
+wrrnty[,"WARR_AMT"]<-scale(wrrnty$WARR_AMT)
+wrrnty<-wrrnty[,-3] # drop the SUBSYSTEM column
+
+subnames<-c("fail_week","PRD_SRL","WARR_AMT","Aux Hydraulic","Electrical","Engine","Miscellaneous","Mud","Multiple","Rotation","Structural","Structure","Thrust","Unknown")
+colnames(wrrnty)<-subnames
 
 
 # Only join where warranty machine match fault machines
@@ -96,8 +169,15 @@ clm_out<-clm_agg[as.character(clm_agg$fail_week) >= range(as.character(faultdt$y
 
 ###########Get Fault
 ###########JOIN to Fault
-wrrnty<-data.table(clm_out,key=c("PRD_SRL","fail_week"))
+faultdt<-data.table(fault,key=c("VMC_VIN","year_week_date"))
+wrrnty<-data.table(wrrnty,key=c("PRD_SRL","fail_week"))
 joined<-faultdt[wrrnty]
+nrow(joined[!is.na(joined$ELECTRICAL),])
+nrow(joined[!is.na(joined$ELECTRICAL) & !is.na(joined$Electrical),])
+
+
+
+
 
 
 
